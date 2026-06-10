@@ -1,0 +1,52 @@
+name: CodeQL — Code Scanning
+
+# CodeQL is GitHub's own semantic code analysis engine.
+# It builds a queryable model of the codebase and runs hundreds of
+# security queries (injections, path traversals, insecure deserialization…).
+# Results surface on the Security → Code scanning tab.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Also run on a weekly schedule so new CVE-mapped queries catch issues
+  # in code that hasn't changed but whose threat model has.
+  schedule:
+    - cron: "30 4 * * 1"   # 04:30 UTC every Monday
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  codeql:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python]
+        # Add 'javascript', 'go', etc. if you add more languages later.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use the security-extended query suite: it includes everything in
+          # the default suite plus more experimental and precision-tuned queries.
+          queries: security-extended
+
+      # For interpreted languages like Python, CodeQL doesn't need a build step —
+      # it instruments the source directly.
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

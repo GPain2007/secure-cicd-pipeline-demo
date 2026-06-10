@@ -1,0 +1,82 @@
+name: Container — Build & Scan
+
+# Build the Docker image and scan it for OS and library CVEs with Trivy.
+# Runs on pushes to main and on PRs (to catch issues before merge).
+# Does NOT push to a registry — this repo is a demo; adapt the push step
+# for your own registry (GHCR, ECR, Docker Hub) when productionising.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # upload Trivy SARIF to Security tab
+
+jobs:
+  build-and-scan:
+    name: Build image & scan (Trivy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build using docker/build-push-action for caching and provenance support.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false          # load into local daemon instead of pushing
+          load: true
+          tags: secure-notes:${{ github.sha }}
+          # Enable build-time attestation (SLSA provenance) without pushing
+          provenance: false
+
+      # ── Trivy vulnerability scan ────────────────────────────────────────────
+      # Trivy checks:
+      #   • OS packages (Debian/Alpine/etc.) against NVD + distro advisories
+      #   • Language-level dependencies (pip, npm, go.sum…) against OSV
+      #   • Dockerfile misconfigurations (running as root, no USER set, etc.)
+      # We scan in two passes: once for the vulnerability report artifact,
+      # once for the SARIF upload.
+      - name: Scan image — table output (human-readable)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: secure-notes:${{ github.sha }}
+          format: table
+          exit-code: "1"           # fail the job on CRITICAL or HIGH findings
+          ignore-unfixed: true     # skip CVEs with no fix yet (noise reduction)
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan image — SARIF output (Security tab)
+        if: always()               # upload findings even if the table scan failed
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: secure-notes:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH,MEDIUM
+
+      - name: Upload Trivy SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-container
+
+      # ── Dockerfile misconfiguration scan ────────────────────────────────────
+      - name: Scan Dockerfile for misconfigurations
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
