@@ -21,7 +21,27 @@ app = FastAPI(
 )
 
 # In-memory store (intentionally simple — the focus is the pipeline, not the DB)
-_notes: dict[str, dict] = {}
+_notes: dict[str, dict] = { 
+    "1": {
+        "id": "1",
+        "title": "FastAPI Introduction",
+        "body": "FastAPI is a modern Python web framework for building APIs."
+    },
+    "2": {
+        "id": "2",
+        "title": "Shopping List",
+        "body": "Milk, eggs, bread, and coffee."
+    },
+    "3": {
+        "id": "3",
+        "title": "Meeting Notes",
+        "body": "Discussed project requirements, timeline, and deployment strategy."
+    },
+    "4": {
+        "id": "4",
+        "title": "Study Notes",
+        "body": "Review REST principles, HTTP methods, and status codes."
+    }}
 
 
 # ---------- Schemas ----------
