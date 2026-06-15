@@ -1,4 +1,4 @@
-name: CI — Lint · Test · Security
+name: CI — Test · Security
 
 # Trigger on every push to any branch, and on PRs targeting main.
 # This ensures every change passes all gates before it can be merged.
@@ -13,6 +13,80 @@ permissions:
   security-events: write # required to upload SARIF results to GitHub Security tab
 
 jobs:
+  # JOB 1— Tests + Coverage
+  # Enforces ≥ 80 % line coverage; fails the build if tests or coverage slip.
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Test (pytest + coverage)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install all dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2 — SAST (Static Application Security Testing)
+  # Bandit inspects the AST for common Python security anti-patterns:
+  #   hardcoded passwords, use of subprocess with shell=True, insecure hash
+  #   algorithms, SQL injection patterns, etc.
+  # Results are also uploaded as SARIF so they appear on the Security tab.
+  # ────────────────────────────────────────────────────────────────────────────
+  sast:
+    name: SAST (bandit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run bandit — fail on medium or higher severity
+        run: |
+          bandit -r app/ \
+            --configfile pyproject.toml \
+            --severity-level medium \
+            --format sarif \
+            --output bandit-results.sarif
+
+      # Even if bandit found issues and the step above failed, still upload the
+      # SARIF so engineers can see the findings in the Security tab.
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit-sast
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 3 — SCA (Software Composition Analysis / Dependency Audit)
+  # pip-audit checks every dependency against OSV, PyPI Advisory DB, and
+  # GitHub Advisory DB for known CVEs.  Fails on any vulnerability with a fix
+  # available — unfixed vulns generate a warning but don't block the build.
+  # ────────────────────────────────────────────────────────────────────────────
   dependency-audit:
     name: SCA — dependency audit (pip-audit)
     runs-on: ubuntu-latest
@@ -53,7 +127,7 @@ jobs:
           path: "*.md"
 
   # ────────────────────────────────────────────────────────────────────────────
-  # JOB 5 — Secret Scanning (Gitleaks)
+  # JOB 4 — Secret Scanning (Gitleaks)
   # Scans every committed file and the full git history for accidentally
   # committed secrets (API keys, tokens, passwords, private keys).
   # Runs on all jobs concurrently — no dependency on lint — so secrets are
